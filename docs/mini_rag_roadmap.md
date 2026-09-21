@@ -51,6 +51,8 @@ mini-rag/
 │   ├── chunker.py              # Text chunking logic
 │   ├── embeddings.py           # Embedding generation
 │   └── vector_store.py         # Vector DB interface
+|   |___ indexer.py  
+|    
 ├── models/
 │   ├── schemas.py              # Pydantic models
 │   └── db.py                   # SQLAlchemy models (optional)
