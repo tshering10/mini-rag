@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     environment: str = "development"
     chunk_size: int = 1000
     chunk_overlap: int = 200
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-3.6-flash"
 
     model_config = SettingsConfigDict(
         env_file=".env",
