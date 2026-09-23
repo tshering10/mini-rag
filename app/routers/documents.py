@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from uuid import uuid4
@@ -9,6 +10,9 @@ from models.schemas import IndexingResponse
 from services.rag_service import RAGService
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+logger = logging.getLogger(__name__)
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024
+UPLOAD_CHUNK_SIZE = 1024 * 1024
 
 
 @router.post(
@@ -22,14 +26,21 @@ async def upload_document(
 ) -> IndexingResponse:
     """Save, index, and remove an uploaded PDF."""
     filename = file.filename or ""
+    logger.info("Document upload started filename=%s", filename)
     if not filename.lower().endswith(".pdf"):
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail="Only PDF files are supported",
         )
+    if file.content_type != "application/pdf":
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="The uploaded file must have content type application/pdf",
+        )
 
     document_id = str(uuid4())
     temporary_path: Path | None = None
+    total_bytes = 0
 
     try:
         with NamedTemporaryFile(
@@ -39,18 +50,31 @@ async def upload_document(
         ) as temporary_file:
             temporary_path = Path(temporary_file.name)
 
-            while content := await file.read(1024 * 1024):
+            while content := await file.read(UPLOAD_CHUNK_SIZE):
+                total_bytes += len(content)
+                if total_bytes > MAX_UPLOAD_SIZE:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail="The PDF file must not exceed 50 MB",
+                    )
                 temporary_file.write(content)
 
-        return await rag_service.ingest_document(
+        if total_bytes == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The uploaded PDF must not be empty",
+            )
+
+        response = await rag_service.ingest_document(
             file_path=temporary_path,
             document_id=document_id,
         )
-    except ValueError as error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(error),
-        ) from error
+        logger.info(
+            "Document indexing completed document_id=%s chunks=%d",
+            document_id,
+            response.chunks_created,
+        )
+        return response
     finally:
         await file.close()
         if temporary_path is not None:
@@ -63,10 +87,5 @@ async def delete_document(
     rag_service: RAGService = Depends(get_rag_service),
 ) -> None:
     """Delete all indexed chunks for a document."""
-    try:
-        await rag_service.delete_document(document_id)
-    except ValueError as error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(error),
-        ) from error
+    await rag_service.delete_document(document_id)
+    logger.info("Document deleted document_id=%s", document_id)

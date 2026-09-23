@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -5,6 +6,8 @@ from core.chunker import TextChunker
 from core.embeddings import EmbeddingService
 from core.pdf_processor import PDFProcessor
 from core.vector_store import VectorStore
+
+logger = logging.getLogger(__name__)
 
 
 class Indexer:
@@ -51,6 +54,12 @@ class Indexer:
             metadata=chunks,
         )
 
+        logger.info(
+            "PDF indexed document_id=%s pages=%d chunks=%d",
+            document_id,
+            len(document["pages"]),
+            len(chunks),
+        )
         return {
             "document_id": document_id,
             "chunks_created": len(chunks),

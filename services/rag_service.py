@@ -1,3 +1,5 @@
+import logging
+from time import perf_counter
 from pathlib import Path
 
 from core.embeddings import EmbeddingService
@@ -9,6 +11,8 @@ from models.schemas import (
     SearchResponse,
     SearchResult,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class RAGService:
@@ -44,6 +48,11 @@ class RAGService:
             pdf_path=file_path,
             document_id=document_id,
         )
+        logger.info(
+            "Document ingested document_id=%s chunks=%d",
+            result["document_id"],
+            result["chunks_created"],
+        )
         return IndexingResponse.model_validate(result)
 
     async def query(self, request: SearchRequest) -> SearchResponse:
@@ -52,6 +61,7 @@ class RAGService:
         if not question:
             raise ValueError("question must not be empty")
 
+        started_at = perf_counter()
         query_embedding = await self.embedding_service.embed_text(question)
         raw_results = await self.vector_store.search(
             query_embedding=query_embedding,
@@ -62,10 +72,17 @@ class RAGService:
             for result in raw_results
         ]
 
-        return SearchResponse(
+        response = SearchResponse(
             question=question,
             results=results,
         )
+        logger.info(
+            "Query completed results=%d k=%d duration_ms=%.2f",
+            len(results),
+            request.k,
+            (perf_counter() - started_at) * 1000,
+        )
+        return response
 
     async def delete_document(self, document_id: str) -> None:
         """Remove all indexed chunks belonging to one document."""

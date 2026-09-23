@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.dependencies import get_rag_service
 from app.main import app
+from core.pdf_processor import PDFProcessingError
 from models.schemas import IndexingResponse, SearchRequest, SearchResponse
 
 
@@ -68,3 +69,61 @@ def test_upload_rejects_non_pdf_files() -> None:
 
     assert response.status_code == 415
     assert response.json()["detail"] == "Only PDF files are supported"
+
+
+def test_upload_rejects_wrong_content_type() -> None:
+    app.dependency_overrides[get_rag_service] = FakeRAGService
+    client = TestClient(app)
+
+    try:
+        response = client.post(
+            "/documents/upload",
+            files={"file": ("document.pdf", b"content", "text/plain")},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 415
+    assert response.json()["detail"] == (
+        "The uploaded file must have content type application/pdf"
+    )
+
+
+def test_upload_rejects_empty_files() -> None:
+    app.dependency_overrides[get_rag_service] = FakeRAGService
+    client = TestClient(app)
+
+    try:
+        response = client.post(
+            "/documents/upload",
+            files={"file": ("document.pdf", b"", "application/pdf")},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "The uploaded PDF must not be empty"
+
+
+def test_upload_returns_unprocessable_for_invalid_pdf() -> None:
+    class FailingRAGService(FakeRAGService):
+        async def ingest_document(
+            self,
+            file_path: str,
+            document_id: str,
+        ) -> IndexingResponse:
+            raise PDFProcessingError("invalid PDF")
+
+    app.dependency_overrides[get_rag_service] = FailingRAGService
+    client = TestClient(app)
+
+    try:
+        response = client.post(
+            "/documents/upload",
+            files={"file": ("document.pdf", b"not a real PDF", "application/pdf")},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Unable to process the uploaded PDF"
