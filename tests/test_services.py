@@ -60,6 +60,13 @@ class FakeVectorStore:
         self.deleted_document_id = document_id
 
 
+class FakeLLMService:
+    model_name = "fake-model"
+
+    async def generate_answer(self, question: str, context: str) -> str:
+        return f"Answer to {question}: {context}"
+
+
 def test_indexer_connects_all_indexing_steps() -> None:
     embedding_service = FakeEmbeddingService()
     vector_store = FakeVectorStore()
@@ -96,3 +103,25 @@ def test_rag_service_queries_and_deletes_documents() -> None:
     assert len(response.results) == 1
     assert response.results[0].metadata.document_id == "doc-1"
     assert vector_store.deleted_document_id == "doc-1"
+
+
+def test_rag_service_generates_grounded_answer_with_sources() -> None:
+    embedding_service = FakeEmbeddingService()
+    vector_store = FakeVectorStore()
+    indexer = Indexer(
+        pdf_processor=FakePDFProcessor(),
+        embedding_service=embedding_service,
+        vector_store=vector_store,
+    )
+    service = RAGService(
+        indexer=indexer,
+        llm_service=FakeLLMService(),
+    )
+    run(service.indexer.index_pdf("document.pdf", "doc-1"))
+
+    response = run(service.answer(SearchRequest(question="alpha", k=1)))
+
+    assert response.answer.startswith("Answer to alpha:")
+    assert response.model_used == "fake-model"
+    assert len(response.source_chunks) == 1
+    assert response.query_time_ms is not None
