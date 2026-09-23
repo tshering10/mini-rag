@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from app.config import get_settings
+from app.routers import documents, query
 
 settings = get_settings()
 
@@ -9,6 +10,9 @@ app = FastAPI(
     version="0.1.0",
     description="A small retrieval-augmented generation API.",
 )
+
+app.include_router(documents.router)
+app.include_router(query.router)
 
 
 @app.get("/health", tags=["health"])
